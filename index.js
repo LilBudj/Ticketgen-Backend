@@ -23,8 +23,8 @@ db.once('open', () => {
 app.use(cors());
 app.use(bodyParser.json())
 
-app.get('/', (req, res) => {
-    res.send('server running')
+app.get('/', async (req, res) => {
+    res.send('<h1>server running</h1>')
 })
 
 app.post('/session', async (req, res) => {
