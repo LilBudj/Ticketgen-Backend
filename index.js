@@ -85,11 +85,18 @@ app.post('/auth', async (req, res) => {
             }
             const token = jwt.sign(payload, process.env.KEY, {expiresIn: 900})
             const tickets = await Ticket.find({ userId: result.userId })
-            console.log('tickets: ', tickets)
-            const event = await Show.findOne({ showId: tickets[0].showId })
-            const orders = tickets.map(t => (
-                { seatsIds:t.seatsIds, ticketId: t.ticketId, userId: t.userId, showId: t.showId, status: t.status, eventName: event.name}
-                ))
+            const event = await Show.findOne({showId: tickets.length ? tickets[0].showId : -228})
+            const orders = tickets.length ? tickets.map(t => (
+                {
+                    seatsIds: t.seatsIds,
+                    ticketId: t.ticketId,
+                    userId: t.userId,
+                    showId: t.showId,
+                    status: t.status,
+                    eventName: event.name
+                }
+            )) : []
+
             console.log('auth: ', result)
             res.send({
                 message: repository.encrypt("auth_success"),
@@ -97,6 +104,8 @@ app.post('/auth', async (req, res) => {
                 orders,
                 token
             })
+
+
         }
     else res.sendStatus(401)
     }
@@ -119,22 +128,20 @@ app.post('/card', async (req, res) => {
 })
 app.post('/purchase', async (req, res) => {
     if (await repository.requestVerify(req)) {
-        const { seatIds, showId } = req.body
+        const { seatsIds, showId } = req.body
         try{
             const show = await Show.findOne({ showId })
             const tickets = await Ticket.find({})
-            await Show.updateOne(show, { availablePlaces: show.availablePlaces - seatIds.length })
-            await Promise.all(seatIds.map(id => Seats.updateOne({ seatId: id }, { status: true })))
+            await Show.updateOne(show, { availablePlaces: show.availablePlaces - seatsIds.length })
+            await Promise.all(seatsIds.map(id => Seats.updateOne({ seatId: id }, { status: true })))
             const ticketParams = {
                 ticketId: tickets.length ? tickets.map(t => t.ticketId).sort()[tickets.length - 1] : 0,
                 userId: jwt.decode(req.headers.authorization).userId,
                 status: true,
-                seatIds,
+                seatsIds,
                 showId
             }
-            const ticket = new Ticket({
-                ticketParams
-            })
+            const ticket = new Ticket(ticketParams)
             await ticket.save()
             res.send({ ticket: ticketParams })
         }
@@ -199,8 +206,8 @@ app.get('/card', async (req, res) => {
     if (await repository.requestVerify(req)) {
         try {
             const token = jwt.verify(req.headers.authorization, process.env.KEY)
-            let cards = await Card.find({userId: token.userId} )
-            res.send({ cards })
+            let card = await Card.findOne({userId: token.userId} )
+            res.send({ card })
         }
         catch (e) {
             console.error(e)
@@ -231,11 +238,15 @@ app.get('/user', async (req, res) => {
 
             let user = await User.findOne({ userId: token.userId })
             let tickets = await Ticket.find({ userId: token.userId })
-            res.send({ ...user, orders: tickets })
+            console.log('Tickets: ', tickets)
+            const shows = await Promise.all(tickets.map(t => Show.findOne({ showId: t.showId })))
+            console.log(shows)
+            const ticketsToResponse = tickets.map(t => ({ seatsIds: t.seatsIds, prices: t.prices, eventName: shows.find(e => e.showId === t.showId).name }))
+            res.send({ username: user.username, email: user.email, password: user.password, orders: ticketsToResponse, isAdmin: false })
         }
         catch (e) {
             console.error(e)
-            res.send({ message: 'Users fetch error', error: e})
+            res.send({ message: 'User fetch error', error: e})
         }
     }
     else res.sendStatus(401)
@@ -272,21 +283,22 @@ app.delete('/signup', async (req, res) => {
     }
     else res.sendStatus(401)
 })
-app.delete('/cancelling', async (req, res) => {
+app.delete('/canceling', async (req, res) => {
     if (await repository.requestVerify(req)) {
         try {
             const token = jwt.verify(req.headers.authorization, process.env.KEY)
 
             const seats = []
-            const tickets = await Ticket.deleteMany({ userId: token.userId })
+            const tickets = await Ticket.find({ userId: token.userId })
+            await Ticket.deleteMany({ userId: token.userId })
             tickets.forEach(t => {
-                seats.push([...t.seatsIds])
+                seats.push(...t.seatsIds)
             })
-            await Promise.all(seats.map(id => Seats.updateOne({ seatId: id }, { status: false })))
+            console.log('promise: ', await Promise.all(seats.map(id => Seats.updateOne({ seatId: id }, { status: false }))))
             const shows = await Promise.all(tickets.map(t => Show.findOne({ showId: t.showId })))
             await Promise.all(tickets.map(t =>
                 Show.updateOne({ showId: t.showId },
-                    { availablePlaces: shows.find(s => s.showId === t.showId) + t.seatIds.length })))
+                    { availablePlaces: shows.find(s => s.showId === t.showId).availablePlaces + t.seatsIds.length })))
             res.send({ message: 'Orders have been canceled successfully' })
         }
         catch (e) {
