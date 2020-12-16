@@ -37,8 +37,6 @@ app.post('/session', async (req, res) => {
 })
 app.post('/signup', async (req, res) => {
     const {username, email, password} = req.body
-    let userIdle = new User({ id: 0, username: 'kk', email: '', password: 'w' })
-    await userIdle.save()
     let users = await User.find({})
     let lastId = users.length ? users.map(u => u.userId).sort()[users.length - 1] : -1
     console.log('id: ', lastId)
