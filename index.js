@@ -48,6 +48,7 @@ app.post('/signup', async (req, res) => {
                     userId: lastId,
                     maxAge: moment().add(15, 'minutes')
                 }
+                console.log('user: ', result)
                 const token = jwt.sign(payload, process.env.KEY, {expiresIn: 900})
                 res.send({message: "userCreated", token})
             }
